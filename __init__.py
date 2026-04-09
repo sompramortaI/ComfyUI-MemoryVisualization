@@ -2,6 +2,7 @@ WEB_DIRECTORY = "web"
 NODE_CLASS_MAPPINGS = {}
 
 import logging
+import asyncio
 import torch
 import server
 from aiohttp import web
@@ -15,15 +16,16 @@ try:
 except ImportError:
     comfy_aimdo = None
 
-import asyncio
-
 _model_lock = asyncio.Lock()
 routes = server.PromptServer.instance.routes
 
 @routes.get("/aimdo/vram")
 async def aimdo_vram_status(request):
-    if not getattr(comfy.memory_management, 'aimdo_enabled', False) or comfy_aimdo is None:
+    device = comfy.model_management.get_torch_device()
+    if not torch.cuda.is_available() or device.type != "cuda":
         return web.json_response({"enabled": False})
+
+    aimdo_active = getattr(comfy.memory_management, 'aimdo_enabled', False) and comfy_aimdo is not None
 
     models = []
     loaded_models = list(comfy.model_management.current_loaded_models)
@@ -49,12 +51,12 @@ async def aimdo_vram_status(request):
         except Exception as e:
             log.debug("aimdo-viz: pinned_memory_size failed: %s", e)
 
-        # VBAR state per device
+        # VBAR state per device (aimdo only)
         vbars = []
         vbar_loaded_total = 0
 
-        if is_dynamic and hasattr(model_obj, "dynamic_vbars"):
-            for device, vbar in model_obj.dynamic_vbars.items():
+        if aimdo_active and is_dynamic and hasattr(model_obj, "dynamic_vbars"):
+            for dev, vbar in model_obj.dynamic_vbars.items():
                 try:
                     loaded_bytes = vbar.loaded_size()
                     vbar_loaded_total += loaded_bytes
@@ -66,15 +68,13 @@ async def aimdo_vram_status(request):
                     else:
                         used_pages = (total_size + page_size - 1) // page_size
                     vbars.append({
-                        "device": str(device),
+                        "device": str(dev),
                         "loaded": loaded_bytes,
                         "watermark": vbar.get_watermark(),
                         "residency": full_residency[:used_pages],
                     })
                 except Exception as e:
-                    log.warning("aimdo-viz: VBAR query failed for device %s: %s", device, e)
-
-        ram_size = max(0, total_size - vbar_loaded_total)
+                    log.warning("aimdo-viz: VBAR query failed: %s", e)
 
         entry = {
             "index": model_idx,
@@ -82,7 +82,7 @@ async def aimdo_vram_status(request):
             "total_size": total_size,
             "loaded_size": loaded,
             "vbar_loaded": vbar_loaded_total,
-            "ram_size": ram_size,
+            "ram_size": max(0, total_size - vbar_loaded_total),
             "pinned_ram": pinned_ram,
             "dynamic": is_dynamic,
             "vbars": vbars,
@@ -90,11 +90,7 @@ async def aimdo_vram_status(request):
 
         models.append(entry)
 
-    total_usage = comfy_aimdo.control.get_total_vram_usage() if comfy_aimdo else 0
-
-    device = comfy.model_management.get_torch_device()
-    if not torch.cuda.is_available() or device.type != "cuda":
-        return web.json_response({"enabled": False})
+    aimdo_usage = comfy_aimdo.control.get_total_vram_usage() if aimdo_active else 0
 
     # driver-level free/total (matches nvitop)
     free_cuda, total_vram = torch.cuda.mem_get_info(device)
@@ -106,9 +102,10 @@ async def aimdo_vram_status(request):
 
     return web.json_response({
         "enabled": True,
+        "aimdo_active": aimdo_active,
         "total_vram": total_vram,
         "free_vram": free_cuda,
-        "aimdo_usage": total_usage,
+        "aimdo_usage": aimdo_usage,
         "torch_active": torch_active,
         "torch_reserved": torch_reserved,
         "models": models,

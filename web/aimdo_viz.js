@@ -219,7 +219,10 @@ function createPanel() {
         padding: 6px 10px; background: ${C.headerBg};
         border-radius: 8px 8px 0 0; cursor: move;
     `;
-    header.innerHTML = `<span style="font-weight:bold;color:${C.text};">VRAM (aimdo)</span>`;
+    const titleSpan = document.createElement("span");
+    titleSpan.style.cssText = `font-weight:bold;color:${C.text};`;
+    titleSpan.textContent = "VRAM";
+    header.appendChild(titleSpan);
 
     const headerRight = document.createElement("div");
     headerRight.style.cssText = "display:flex;align-items:center;gap:6px;";
@@ -287,6 +290,7 @@ function createPanel() {
     document.addEventListener("mouseup", () => { dragging = false; });
 
     document.body.appendChild(panel);
+    body._titleSpan = titleSpan;
     return body;
 }
 
@@ -325,12 +329,13 @@ function ensureStructure(body) {
 
 function renderData(body, data) {
     if (!data.enabled) {
-        body.innerHTML = `<div style="color:${C.textDim};">aimdo not enabled</div>`;
+        body.innerHTML = `<div style="color:${C.textDim};">not available</div>`;
         refs = null;
         return;
     }
 
     const r = ensureStructure(body);
+    body._titleSpan.textContent = data.aimdo_active ? "VRAM (aimdo)" : "VRAM";
     pushHistory(data);
 
     const used = data.total_vram - data.free_vram;
@@ -351,7 +356,7 @@ function renderData(body, data) {
             <div style="background:${C.other};height:100%;width:${otherPct}%;" title="other: ${formatBytes(otherUsed)}"></div>
         </div>
         <div style="display:flex;gap:8px;font-size:10px;color:${C.textDim};margin-top:2px;">
-            <span><span style="color:${C.vram};">&#9632;</span> aimdo ${formatBytes(data.aimdo_usage)}</span>
+            ${data.aimdo_active ? `<span><span style="color:${C.vram};">&#9632;</span> aimdo ${formatBytes(data.aimdo_usage)}</span>` : ""}
             <span><span style="color:${C.torch};">&#9632;</span> torch ${formatBytes(data.torch_active)}</span>
             <span><span style="color:${C.other};">&#9632;</span> other ${formatBytes(otherUsed)}</span>
         </div>
@@ -380,7 +385,7 @@ function renderData(body, data) {
                 <span>${escHtml(m.name)}${m.dynamic ? "" : " (static)"}</span>
                 <span style="display:flex;align-items:center;gap:6px;">
                     <span>${formatBytes(m.total_size)}</span>
-                    ${m.dynamic ? `<span class="aimdo-reset-wm-btn" data-index="${m.index}" style="cursor:pointer;font-size:9px;padding:0px 4px;background:${C.btn};border-radius:2px;color:${C.btnText};" title="reset watermark">wm</span>` : ""}
+                    ${m.dynamic && data.aimdo_active ? `<span class="aimdo-reset-wm-btn" data-index="${m.index}" style="cursor:pointer;font-size:9px;padding:0px 4px;background:${C.btn};border-radius:2px;color:${C.btnText};" title="reset watermark">wm</span>` : ""}
                     <span class="aimdo-unload-btn" data-index="${m.index}" style="cursor:pointer;font-size:9px;padding:0px 4px;background:${C.btn};border-radius:2px;color:${C.btnText};">x</span>
                 </span>
             </div>`;
