@@ -18,7 +18,12 @@ try:
 except ImportError:
     comfy_aimdo = None
 
-_model_lock = asyncio.Lock()
+def _get_lock():
+    # Stored on comfy.model_management so the same lock survives hot reloads.
+    mm = comfy.model_management
+    if not hasattr(mm, '_viz_model_lock'):
+        mm._viz_model_lock = asyncio.Lock()
+    return mm._viz_model_lock
 routes = server.PromptServer.instance.routes
 
 @routes.get("/aimdo/vram")
@@ -125,7 +130,7 @@ async def aimdo_vram_status(request):
 async def aimdo_unload_all(request):
     if _is_executing():
         return web.json_response({"error": "cannot unload during execution"}, status=409)
-    async with _model_lock:
+    async with _get_lock():
         await asyncio.get_running_loop().run_in_executor(None, comfy.model_management.unload_all_models)
     return web.json_response({"status": "ok"})
 
@@ -147,7 +152,7 @@ async def aimdo_reset_watermark(request):
     idx, err = _get_model_idx(await request.json())
     if err:
         return err
-    async with _model_lock:
+    async with _get_lock():
         torch.cuda.empty_cache()
         models = comfy.model_management.current_loaded_models
         if idx >= len(models):
@@ -166,7 +171,7 @@ async def aimdo_unload_model(request):
     idx, err = _get_model_idx(await request.json())
     if err:
         return err
-    async with _model_lock:
+    async with _get_lock():
         models = comfy.model_management.current_loaded_models
         if idx >= len(models):
             return web.json_response({"error": "model no longer at index"}, status=409)
