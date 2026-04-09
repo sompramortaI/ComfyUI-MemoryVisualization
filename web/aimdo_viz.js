@@ -8,12 +8,24 @@ const GRAPH_POINTS = 120;
 const execState = { running: false, node: null, progress: null };
 let peakVramUsed = 0;
 
+const STORAGE_KEY = "aimdo_viz_state";
+function loadState() {
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; }
+    catch { return {}; }
+}
+function saveState(patch) {
+    const s = loadState();
+    Object.assign(s, patch);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+}
+
 // color palette — dark chrome, colored data
 const C = {
     vram:       "#e67e22",
     torch:      "#2ecc71",
     pinned:     "#4a9eff",
     unloaded:   "#3a3a3a",
+    python:     "#9b59b6",
     other:      "#505050",
     text:       "#b0b0b0",
     textDim:    "#707070",
@@ -92,8 +104,9 @@ function drawGraph(ctx, w, h) {
     const yFor = val => h - (val / total) * h;
 
     // aimdo area
+    const dataStartX = (GRAPH_POINTS - len) * stepX;
     ctx.beginPath();
-    ctx.moveTo(0, h);
+    ctx.moveTo(dataStartX, h);
     for (let i = 0; i < len; i++) {
         ctx.lineTo((GRAPH_POINTS - len + i) * stepX, yFor(historyGet(history.aimdo_usage, i)));
     }
@@ -104,7 +117,7 @@ function drawGraph(ctx, w, h) {
 
     // torch area stacked
     ctx.beginPath();
-    ctx.moveTo(0, h);
+    ctx.moveTo(dataStartX, yFor(historyGet(history.aimdo_usage, 0)));
     for (let i = 0; i < len; i++) {
         const x = (GRAPH_POINTS - len + i) * stepX;
         ctx.lineTo(x, yFor(historyGet(history.aimdo_usage, i) + historyGet(history.torch_active, i)));
@@ -201,6 +214,9 @@ function drawPageGrid(ctx, w, residency, changeAge) {
 }
 
 function createPanel() {
+    const saved = loadState();
+    if (saved.pollInterval) pollInterval = saved.pollInterval;
+
     const panel = document.createElement("div");
     panel.id = "aimdo-viz-panel";
     panel.style.cssText = `
@@ -212,6 +228,12 @@ function createPanel() {
         box-shadow: 0 4px 12px rgba(0,0,0,0.7);
         user-select: none; resize: horizontal; overflow-y: auto;
     `;
+    if (saved.left != null && saved.top != null) {
+        panel.style.left = saved.left + "px";
+        panel.style.top = saved.top + "px";
+        panel.style.right = "auto";
+        panel.style.bottom = "auto";
+    }
 
     const header = document.createElement("div");
     header.style.cssText = `
@@ -223,6 +245,17 @@ function createPanel() {
     titleSpan.style.cssText = `font-weight:bold;color:${C.text};`;
     titleSpan.textContent = "VRAM";
     header.appendChild(titleSpan);
+
+    const miniBar = document.createElement("div");
+    miniBar.style.cssText = `display:none;padding:4px 10px 6px;font-size:10px;color:${C.textDim};`;
+    miniBar.innerHTML = `<div style="display:flex;justify-content:space-between;margin-bottom:2px;">
+        <span>RAM</span><span class="mini-ram-usage"></span>
+    </div>
+    <div style="background:${C.barBg};border-radius:2px;height:4px;overflow:hidden;display:flex;margin-bottom:4px;" class="mini-ram-bar"></div>
+    <div style="display:flex;justify-content:space-between;margin-bottom:2px;">
+        <span>VRAM</span><span class="mini-vram-usage"></span>
+    </div>
+    <div style="background:${C.barBg};border-radius:2px;height:4px;overflow:hidden;display:flex;" class="mini-vram-bar"></div>`;
 
     const headerRight = document.createElement("div");
     headerRight.style.cssText = "display:flex;align-items:center;gap:6px;";
@@ -236,7 +269,7 @@ function createPanel() {
         if (ms === pollInterval) opt.selected = true;
         intervalSelect.appendChild(opt);
     }
-    intervalSelect.addEventListener("change", () => { pollInterval = parseInt(intervalSelect.value); });
+    intervalSelect.addEventListener("change", () => { pollInterval = parseInt(intervalSelect.value); saveState({ pollInterval }); });
 
     const unloadBtn = document.createElement("span");
     unloadBtn.textContent = "unload";
@@ -251,6 +284,19 @@ function createPanel() {
         }
     });
 
+    const resetBtn = document.createElement("span");
+    resetBtn.textContent = "reset";
+    resetBtn.style.cssText = `cursor:pointer;font-size:10px;padding:1px 6px;background:${C.btn};border-radius:3px;color:${C.btnText};`;
+    resetBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        peakVramUsed = 0;
+        history.head = 0;
+        history.len = 0;
+        history.torch_active.fill(0);
+        history.aimdo_usage.fill(0);
+        history.free_vram.fill(0);
+    });
+
     const toggleBtn = document.createElement("span");
     toggleBtn.textContent = "\u2212";
     toggleBtn.style.cssText = `cursor:pointer;font-size:16px;padding:0 4px;color:${C.btnText};`;
@@ -259,19 +305,28 @@ function createPanel() {
     body.id = "aimdo-viz-body";
     body.style.cssText = "padding: 8px 10px;";
 
-    let collapsed = false;
+    let collapsed = !!saved.collapsed;
+    if (collapsed) {
+        body.style.display = "none";
+        toggleBtn.textContent = "+";
+        miniBar.style.display = "block";
+    }
     toggleBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         collapsed = !collapsed;
         body.style.display = collapsed ? "none" : "block";
+        miniBar.style.display = collapsed ? "block" : "none";
         toggleBtn.textContent = collapsed ? "+" : "\u2212";
+        saveState({ collapsed });
     });
 
     headerRight.appendChild(intervalSelect);
+    headerRight.appendChild(resetBtn);
     headerRight.appendChild(unloadBtn);
     headerRight.appendChild(toggleBtn);
     header.appendChild(headerRight);
     panel.appendChild(header);
+    panel.appendChild(miniBar);
     panel.appendChild(body);
 
     let dragging = false, dx = 0, dy = 0;
@@ -287,10 +342,14 @@ function createPanel() {
         panel.style.right = "auto";
         panel.style.bottom = "auto";
     });
-    document.addEventListener("mouseup", () => { dragging = false; });
+    document.addEventListener("mouseup", () => {
+        if (dragging) saveState({ left: panel.offsetLeft, top: panel.offsetTop });
+        dragging = false;
+    });
 
     document.body.appendChild(panel);
     body._titleSpan = titleSpan;
+    body._miniBar = miniBar;
     return body;
 }
 
@@ -345,7 +404,45 @@ function renderData(body, data) {
     const otherUsed = Math.max(0, used - data.aimdo_usage - data.torch_active);
     const otherPct = (otherUsed / data.total_vram * 100).toFixed(0);
 
+    const ramUsed = data.used_ram || 0;
+    const ramTotal = data.total_ram || 1;
+    const processRam = data.process_ram || 0;
+    const pinnedRamTotal = data.pinned_ram || 0;
+    const pythonOther = Math.max(0, processRam - pinnedRamTotal);
+    const ramOther = Math.max(0, ramUsed - processRam);
+    const pinnedRamPct = (pinnedRamTotal / ramTotal * 100).toFixed(0);
+    const pythonOtherPct = (pythonOther / ramTotal * 100).toFixed(0);
+    const ramOtherPct = (ramOther / ramTotal * 100).toFixed(0);
+
+    const mb = body._miniBar;
+    mb.querySelector(".mini-vram-usage").textContent = `${formatBytes(used)} / ${formatBytes(data.total_vram)}`;
+    mb.querySelector(".mini-vram-bar").innerHTML =
+        `<div style="background:${C.vram};height:100%;width:${aimdoPct}%;"></div>` +
+        `<div style="background:${C.torch};height:100%;width:${torchPct}%;"></div>` +
+        `<div style="background:${C.other};height:100%;width:${otherPct}%;"></div>`;
+    mb.querySelector(".mini-ram-usage").textContent = `${formatBytes(ramUsed)} / ${formatBytes(ramTotal)}`;
+    mb.querySelector(".mini-ram-bar").innerHTML =
+        `<div style="background:${C.pinned};height:100%;width:${pinnedRamPct}%;"></div>` +
+        `<div style="background:${C.python};height:100%;width:${pythonOtherPct}%;"></div>` +
+        `<div style="background:${C.other};height:100%;width:${ramOtherPct}%;"></div>`;
+
     r.contentDiv.innerHTML = `<div style="margin-bottom:4px;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:2px;">
+            <span>RAM</span>
+            <span>${formatBytes(ramUsed)} / ${formatBytes(ramTotal)}</span>
+        </div>
+        <div style="background:${C.barBg};border-radius:3px;height:8px;overflow:hidden;display:flex;">
+            <div style="background:${C.pinned};height:100%;width:${pinnedRamPct}%;" title="pinned: ${formatBytes(pinnedRamTotal)}"></div>
+            <div style="background:${C.python};height:100%;width:${pythonOtherPct}%;" title="python: ${formatBytes(pythonOther)}"></div>
+            <div style="background:${C.other};height:100%;width:${ramOtherPct}%;" title="other: ${formatBytes(ramOther)}"></div>
+        </div>
+        <div style="display:flex;gap:8px;font-size:10px;color:${C.textDim};margin-top:2px;">
+            <span><span style="color:${C.pinned};">&#9632;</span> pinned ${formatBytes(pinnedRamTotal)}</span>
+            <span><span style="color:${C.python};">&#9632;</span> python ${formatBytes(pythonOther)}</span>
+            <span><span style="color:${C.other};">&#9632;</span> other ${formatBytes(ramOther)}</span>
+        </div>
+    </div>
+    <div style="margin-bottom:4px;">
         <div style="display:flex;justify-content:space-between;margin-bottom:2px;">
             <span>VRAM</span>
             <span>${formatBytes(used)} / ${formatBytes(data.total_vram)}</span>
